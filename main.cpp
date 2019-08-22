@@ -1,20 +1,8 @@
 #include "include.h"
 
-char ** global_argv = nullptr;
-uint8_t global_client_ip[4];
-uint8_t global_server_ip[4];
-unsigned char global_packet[10000];
-int global_ret = 0;
-uint16_t global_id = 0x1000;
+static char ** global_argv;
 
-void dump(unsigned char* buf, int size) {
-    int i;
-    for (i = 0; i < size; i++) {
-        if (i % 16 == 0)
-            printf("\n");
-        printf("%02x ", buf[i]);
-    }
-}
+int global_ACCEPT = 1;
 
 
 /* returns packet id */
@@ -27,12 +15,7 @@ static u_int32_t print_pkt (struct nfq_data *tb)
     int ret;
     unsigned char *data;
 
-    ph = nfq_get_msg_packet_hdr(tb);
-    if (ph) {
-        id = ntohl(ph->packet_id);
-        printf("hw_protocol=0x%04x hook=%u id=%u ",
-               ntohs(ph->hw_protocol), ph->hook, id);
-    }
+
 
     hwph = nfq_get_packet_hw(tb);
     if (hwph) {
@@ -66,26 +49,60 @@ static u_int32_t print_pkt (struct nfq_data *tb)
     ret = nfq_get_payload(tb, &data);
     if (ret >= 0)
         printf("payload_len=%d ", ret);
-    // dump(data, ret);
-    //*****************************************************************//
+    //***********************************************************
+
+    const char *dev = global_argv[1];
+    u_char * packet = data;
+        // Get My IP
+    in_addr_t myIP = get_my_ip(dev);
+
+    static std::set<in_addr_t> blacklist;
+
+
+    switch (packet_classification(packet)) {
+            case PacketClass::TCP:
+                if (detect_attack(packet, blacklist, myIP) != AttackClass::ACCEPT) // if drop packet;
+                {
+                    std::cout << "Drop\n";
+                    return NF_DROP;
+                }
+                break;
+            case PacketClass::ARP:
+            case PacketClass::ICMP:
+            case PacketClass::IGMP:
+            case PacketClass::UDP:
+            case PacketClass::IP:
+            case PacketClass::UNCLASSIFIED:
+                break;
+            }
 
 
 
 
 
-    //*****************************************************************//
+
+
+    //***********************************************************
     fputc('\n', stdout);
 
-    return id;
+    return NF_ACCEPT;
 }
 
 
 static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
-              struct nfq_data *nfa, void *data)
+          struct nfq_data *nfa, void *data)
 {
-    u_int32_t id = print_pkt(nfa);
+    u_int32_t id;
+    struct nfqnl_msg_packet_hdr *ph;
+    ph = nfq_get_msg_packet_hdr(nfa);
+    if (ph)
+    {
+        id = ntohl(ph->packet_id);
+    }
+    int NF_VERDICT = print_pkt(nfa);
     printf("entering callback\n");
-    return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
+
+    return nfq_set_verdict(qh, id, NF_VERDICT, 0, NULL);
 }
 
 int main(int argc, char **argv)
@@ -98,10 +115,6 @@ int main(int argc, char **argv)
     char buf[4096] __attribute__ ((aligned));
 
     global_argv = argv;
-    inet_pton(AF_INET, global_argv[1], global_client_ip);
-    inet_pton(AF_INET, global_argv[2], global_server_ip);
-
-
 
     printf("opening library handle\n");
     h = nfq_open();
