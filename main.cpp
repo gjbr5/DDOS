@@ -3,7 +3,7 @@
 static char ** global_argv;
 
 int global_ACCEPT = 1;
-
+std::set<in_addr_t> blacklist;
 
 /* returns packet id */
 static u_int32_t print_pkt (struct nfq_data *tb)
@@ -15,66 +15,44 @@ static u_int32_t print_pkt (struct nfq_data *tb)
     int ret;
     unsigned char *data;
 
-
-
-    hwph = nfq_get_packet_hw(tb);
-    if (hwph) {
-        int i, hlen = ntohs(hwph->hw_addrlen);
-
-        printf("hw_src_addr=");
-        for (i = 0; i < hlen-1; i++)
-            printf("%02x:", hwph->hw_addr[i]);
-        printf("%02x ", hwph->hw_addr[hlen-1]);
+    ph = nfq_get_msg_packet_hdr(tb);
+    if (ph)
+    {
+        id = ntohl(ph->packet_id);
+//                   printf("hw_protocol=0x%04x hook=%u id=%u ",
+//                        ntohs(ph->hw_protocol), ph->hook, id);
     }
 
-    mark = nfq_get_nfmark(tb);
-    if (mark)
-        printf("mark=%u ", mark);
 
-    ifi = nfq_get_indev(tb);
-    if (ifi)
-        printf("indev=%u ", ifi);
-
-    ifi = nfq_get_outdev(tb);
-    if (ifi)
-        printf("outdev=%u ", ifi);
-    ifi = nfq_get_physindev(tb);
-    if (ifi)
-        printf("physindev=%u ", ifi);
-
-    ifi = nfq_get_physoutdev(tb);
-    if (ifi)
-        printf("physoutdev=%u ", ifi);
 
     ret = nfq_get_payload(tb, &data);
-    if (ret >= 0)
-        printf("payload_len=%d ", ret);
+
     //***********************************************************
 
-    const char *dev = global_argv[1];
+    printf("\n------------------------------------------\n");
     u_char * packet = data;
-        // Get My IP
-    in_addr_t myIP = get_my_ip(dev);
+    // Get My IP
 
-    static std::set<in_addr_t> blacklist;
+    in_addr_t myIP = get_my_ip(global_argv[1]);
 
 
-    switch (packet_classification(packet)) {
-            case PacketClass::TCP:
-                if (detect_attack(packet, blacklist, myIP) != AttackClass::ACCEPT) // if drop packet;
-                {
-                    std::cout << "Drop\n";
-                    return NF_DROP;
-                }
-                break;
-            case PacketClass::ARP:
-            case PacketClass::ICMP:
-            case PacketClass::IGMP:
-            case PacketClass::UDP:
-            case PacketClass::IP:
-            case PacketClass::UNCLASSIFIED:
-                break;
-            }
+    int num = packet_classification(packet);
+    switch (num) {
+    case PacketClass::TCP:
+        if (detect_attack(packet, blacklist, myIP) != AttackClass::ACCEPT) // if drop packet;
+        {
+            std::cout << "Drop\n";
+            return NF_DROP;
+        }
+        break;
+    case PacketClass::ARP:
+    case PacketClass::ICMP:
+    case PacketClass::IGMP:
+    case PacketClass::UDP:
+    case PacketClass::IP:
+    case PacketClass::UNCLASSIFIED:
+        break;
+    }
 
 
 
@@ -90,7 +68,7 @@ static u_int32_t print_pkt (struct nfq_data *tb)
 
 
 static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
-          struct nfq_data *nfa, void *data)
+              struct nfq_data *nfa, void *data)
 {
     u_int32_t id;
     struct nfqnl_msg_packet_hdr *ph;
@@ -100,7 +78,7 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
         id = ntohl(ph->packet_id);
     }
     int NF_VERDICT = print_pkt(nfa);
-    printf("entering callback\n");
+//    printf("entering callback\n");
 
     return nfq_set_verdict(qh, id, NF_VERDICT, 0, NULL);
 }

@@ -4,20 +4,20 @@ PacketClass packet_classification(const uint8_t *packet)
 {
     /**************Packet Parsing********************/
 
-    const Ethernet *eth_h = reinterpret_cast<const Ethernet *>(packet);
+//    const Ethernet *eth_h = reinterpret_cast<const Ethernet *>(packet);
 
-    if (ntohs(eth_h->type) == ETHERTYPE_ARP)
-        return PacketClass::ARP;
-    if (ntohs(eth_h->type) != ETHERTYPE_IP) {
-        std::cout << "Cannot Classify\n";
-        return PacketClass::UNCLASSIFIED;
-    }
+//    if (ntohs(eth_h->type) == ETHERTYPE_ARP)
+//        return PacketClass::ARP;
+//    if (ntohs(eth_h->type) != ETHERTYPE_IP) {
+//        std::cout << "Cannot Classify\n";
+//        return PacketClass::UNCLASSIFIED;
+//    }
 
     /************************************************/
 
     /************Packet Classification***************/
 
-    const Ip *ip_h = reinterpret_cast<const Ip *>(packet + sizeof(Ethernet));
+    const Ip *ip_h = reinterpret_cast<const Ip *>(packet);
 
     if (ip_h->protocol == IPPROTO_ICMP) {
         std::cout << "ICMP\n";
@@ -39,22 +39,23 @@ PacketClass packet_classification(const uint8_t *packet)
     /************************************************/
 }
 
-AttackClass detect_attack(const uint8_t *packet, std::set<in_addr_t> blacklist, in_addr_t my_ip)
+AttackClass detect_attack(const uint8_t *packet, std::set<in_addr_t> & blacklist, in_addr_t my_ip)
 {
     /**************Packet Parsing********************/
 
-    const Ip *ip_h = reinterpret_cast<const Ip *>(packet + sizeof(Ethernet));
+    const Ip *ip_h = reinterpret_cast<const Ip *>(packet);
     int ip_size = (ip_h->VHL & 0x0F) << 2;
     int total_size = ntohs(ip_h->Total_LEN);
 
-    const Tcp *tcp_h = reinterpret_cast<const Tcp *>(packet + sizeof(Ethernet) + ip_size);
+    const Tcp *tcp_h = reinterpret_cast<const Tcp *>(packet + ip_size);
     int tcp_size = (tcp_h->OFF & 0xF0) >> 2;
 
-    const uint8_t *payload = packet + sizeof(Ethernet) + ip_size + tcp_size;
+    const uint8_t *payload = packet + ip_size + tcp_size;
     int payload_len = total_size - ip_size - tcp_size;
 
     /************Check Ip in Black List**************/
 
+    printf("%u:%u:%u:%u\n",ip_h->s_ip[0],ip_h->s_ip[1],ip_h->s_ip[2],ip_h->s_ip[3]);
     if (blacklist.find(translate_ip(ip_h->s_ip)) != blacklist.end()) {
         std::cout << "Find Black List\n";
         std::cout << "Drop packet\n";
@@ -75,6 +76,7 @@ AttackClass detect_attack(const uint8_t *packet, std::set<in_addr_t> blacklist, 
     uint16_t d_port = ntohs(tcp_h->d_port);
     uint8_t flag = (tcp_h->flag & 0x3F);
 
+    printf("port = %04x\n", d_port);
     /************************************************/
 
     /*****************Port Scan*******************/
@@ -85,7 +87,7 @@ AttackClass detect_attack(const uint8_t *packet, std::set<in_addr_t> blacklist, 
         blacklist.insert(translate_ip(ip_h->s_ip));
         std::cout << std::ios::hex;
         std::cout << "port : " << ((d_port >> 8) & 0xff) << (d_port & 0xff) << "\n";
-        std::cout << "flag : " << flag << "\n";
+        printf("flag: %02x \n", flag);
         std::cout << "AddBlackList\n";
         std::cout << std::ios::dec;
         return AttackClass::PORT_SCAN;
@@ -97,10 +99,10 @@ AttackClass detect_attack(const uint8_t *packet, std::set<in_addr_t> blacklist, 
 
     if (flag == XMAS || flag == 0) {
         blacklist.insert(translate_ip(ip_h->s_ip));
-        std::cout << std::ios::hex;
-        std::cout << "flag: " << flag << "\n";
+//        std::cout << std::ios::hex;
+        printf("flag: %02x \n", flag);
         std::cout << "AddBlackList\n";
-        std::cout << std::ios::dec;
+//        std::cout << std::ios::dec;
         return AttackClass::ABNORMAL_FLAG;
     }
 

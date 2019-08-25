@@ -19,4 +19,4 @@
 enum PacketClass { UNCLASSIFIED, ARP, IP, ICMP, IGMP, TCP, UDP };
 enum AttackClass { ACCEPT, BLACKLIST, LAND_ATTACK, PORT_SCAN, ABNORMAL_FLAG, TSUNAMI };
 PacketClass packet_classification(const uint8_t *packet);
-AttackClass detect_attack(const uint8_t *packet, std::set<in_addr_t> blacklist, in_addr_t my_ip);
+AttackClass detect_attack(const uint8_t *packet, std::set<in_addr_t> & blacklist, in_addr_t my_ip);

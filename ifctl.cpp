@@ -1,6 +1,6 @@
 #include "ifctl.h"
 
-in_addr_t get_my_ip(const char *interface)
+in_addr_t get_my_ip(const char* interface)
 {
     struct ifreq ifr;
     strncpy(ifr.ifr_name, interface, sizeof(interface) - 1);
