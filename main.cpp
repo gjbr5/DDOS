@@ -2,63 +2,41 @@
 
 static char ** global_argv;
 
-int global_ACCEPT = 1;
-std::set<in_addr_t> blacklist;
+static std::set<in_addr_t> blacklist;
+static in_addr_t my_ip;
 
-/* returns packet id */
-static u_int32_t print_pkt (struct nfq_data *tb)
+/* returns verdict */
+static u_int32_t verdict(struct nfq_data *tb)
 {
-    int id = 0;
-    struct nfqnl_msg_packet_hdr *ph;
-    struct nfqnl_msg_packet_hw *hwph;
-    u_int32_t mark,ifi;
-    int ret;
-    unsigned char *data;
-
-    ph = nfq_get_msg_packet_hdr(tb);
-    if (ph)
-    {
-        id = ntohl(ph->packet_id);
-//                   printf("hw_protocol=0x%04x hook=%u id=%u ",
-//                        ntohs(ph->hw_protocol), ph->hook, id);
-    }
-
-
-
-    ret = nfq_get_payload(tb, &data);
-
-    //***********************************************************
+    // Get Packet Data
+    u_char *packet = nullptr;
+    nfq_get_payload(tb, &packet);
 
     printf("\n------------------------------------------\n");
-    u_char * packet = data;
-    // Get My IP
 
-    in_addr_t myIP = get_my_ip(global_argv[1]);
-
-
-    int num = packet_classification(packet);
+    PacketClass num = packet_classification(packet);
     switch (num) {
     case PacketClass::TCP:
-        if (detect_attack(packet, blacklist, myIP) != AttackClass::ACCEPT) // if drop packet;
+        if (detect_tcp_attack(packet, blacklist, my_ip) != AttackClass::ACCEPT) // if drop packet;
         {
-            std::cout << "Drop\n";
+            printf("Drop\n");
             return NF_DROP;
         }
         break;
-    case PacketClass::ARP:
     case PacketClass::ICMP:
-    case PacketClass::IGMP:
+        //        if (detect_icmp_attack(packet, blacklist, my_ip) != AttackClass::ACCEPT) {
+        //            printf("Drop\n");
+        //            return NF_DROP;
+        //        }
+        break;
     case PacketClass::UDP:
+        break;
+    case PacketClass::IGMP:
     case PacketClass::IP:
+    case PacketClass::ARP:
     case PacketClass::UNCLASSIFIED:
         break;
     }
-
-
-
-
-
-
 
     //***********************************************************
     fputc('\n', stdout);
@@ -66,21 +44,15 @@ static u_int32_t print_pkt (struct nfq_data *tb)
     return NF_ACCEPT;
 }
 
-
-static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
-              struct nfq_data *nfa, void *data)
+static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct nfq_data *nfa, void *data)
 {
-    u_int32_t id;
-    struct nfqnl_msg_packet_hdr *ph;
-    ph = nfq_get_msg_packet_hdr(nfa);
+    u_int32_t id = 0;
+    struct nfqnl_msg_packet_hdr *ph = nfq_get_msg_packet_hdr(nfa);
     if (ph)
-    {
         id = ntohl(ph->packet_id);
-    }
-    int NF_VERDICT = print_pkt(nfa);
-//    printf("entering callback\n");
+    u_int32_t NF_VERDICT = verdict(nfa);
 
-    return nfq_set_verdict(qh, id, NF_VERDICT, 0, NULL);
+    return nfq_set_verdict(qh, id, NF_VERDICT, 0, nullptr);
 }
 
 int main(int argc, char **argv)
@@ -90,9 +62,14 @@ int main(int argc, char **argv)
     struct nfnl_handle *nh;
     int fd;
     int rv;
-    char buf[4096] __attribute__ ((aligned));
+    char buf[4096] __attribute__((aligned));
 
+    if (argc < 2)
+        return 0;
     global_argv = argv;
+
+    // Get My IP
+    my_ip = get_my_ip(argv[1]);
 
     printf("opening library handle\n");
     h = nfq_open();
@@ -114,7 +91,7 @@ int main(int argc, char **argv)
     }
 
     printf("binding this socket to queue '0'\n");
-    qh = nfq_create_queue(h,  0, &cb, NULL);
+    qh = nfq_create_queue(h, 0, &cb, nullptr);
     if (!qh) {
         fprintf(stderr, "error during nfq_create_queue()\n");
         exit(1);
@@ -127,9 +104,8 @@ int main(int argc, char **argv)
     }
 
     fd = nfq_fd(h);
-
     for (;;) {
-        if ((rv = recv(fd, buf, sizeof(buf), 0)) >= 0) {
+        if ((rv = static_cast<int>(recv(fd, buf, sizeof(buf), 0))) >= 0) {
             printf("pkt received\n");
             nfq_handle_packet(h, buf, rv);
             continue;
